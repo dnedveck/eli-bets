@@ -1,0 +1,257 @@
+---
+title: "simulating bets"
+output: html_document
+date: "2022-07-26"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(dplyr)
+```
+
+
+## Intro
+
+This document serves to show how I got to simulating a betting strategy. 
+
+
+## Work 
+
+First step is to simulate the process of spinning a roulette wheel.
+
+```{r}
+SpinWheel <- function(odds_win){
+  runif(1) < odds_win
+}
+SpinWheel(0.5)
+```
+
+Alright, so the next step in this process is that the betting behavior is going to be spinning the wheel until one wins, and then walks away. So I'm going to model this using a while loop -- that until a win is achieved, keep spinning the wheel. I'm also going to track how many spins it takes until a win is reached. 
+
+```{r}
+set.seed(334)
+win <- FALSE
+wtracker <- 0
+while(win == FALSE){
+  wtracker <- wtracker + 1
+  win <- SpinWheel(0.5)
+}
+wtracker
+```
+
+Ok, now that I have a mechanism to simulate a series of spins, I can add in the layers of the strategy. 
+
+I'm going to tuck this into a function:
+
+```{r}
+RunStrat_1 <- function(odds_win){
+  # see how many attempts before a win
+  win <- FALSE
+  wtracker <- 0
+  while(win == FALSE){
+    wtracker <- wtracker + 1
+    win <- SpinWheel(0.5)
+  }
+  wtracker
+  
+  return(wtracker)
+}
+replicate(10, RunStrat_1(0.5))
+```
+
+
+ok, so putting it into a function works (on an earlier attempt I was getting unexpected behavior when I had a while loop in a function)
+
+Now lets incorporate the starting bet, doubling, and how much money one wins at the end. Now I'm just going to return the amount of money won during the run. One thing I should mention is that I am treat a bet as a fee to play the game. Essentially that you insert your bet, the game runs, and either you get 0, or 2x your bet. 
+```{r}
+RunStrat_2 <- function(odds_win, start_bet){
+  # see how many attempts before a win
+  win <- FALSE
+  wtracker <- 0
+  while(win == FALSE){
+    wtracker <- wtracker + 1
+    win <- SpinWheel(0.5)
+  }
+  wtracker
+  
+  # determine the amount of money spent on bets
+  bet_money <- start_bet*2^(wtracker-1)
+  
+  # determing the bet payout
+  payout <- start_bet*2^wtracker
+  
+  # find total winnings
+  winnings <- payout - bet_money
+  
+  return(winnings)
+}
+replicate(10, RunStrat_2(0.5, 2))
+```
+
+
+And there we have it, we can run the strategy. The next layer is that in reality, we have a finite amount of money. I want to be able to model a case where we have a finite pool, and we bet up until that pool is spent. I think it would be handy to have the function be able to be run either with an infinite, or finite pool, as this would be handy for simulation.
+
+```{r}
+set.seed(333)
+# set cash_pool to <0 for infinite
+RunStrat_2 <- function(odds_win, start_bet, cash_pool){
+  # see how many attempts before a win
+  win <- FALSE
+  wtracker <- 0
+  while(win == FALSE){
+    wtracker <- wtracker + 1
+    win <- SpinWheel(0.5)
+  }
+  wtracker
+  
+  # determine the amount of money spent on bets
+  bet_money <- start_bet*2^(wtracker-1)
+  
+  if(cash_pool > 0 ){
+    if(bet_money > cash_pool){
+      return(
+        # if the attempts exhausts the cash pool, let's just pretend we 
+        # bet the most we could
+        - start_bet*2^floor(log(cash_pool / start_bet, 2))
+      )
+    }
+  }
+  
+  # determining the bet payout
+  payout <- start_bet*2^wtracker
+  
+  # find total winnings
+  winnings <- payout - bet_money
+  
+  return(winnings)
+}
+replicate(100, RunStrat_2(0.5, 2, 100))
+```
+
+Ok, I think I have it modeled well enough that I can go into the stage of simulation. 
+
+
+
+.....
+
+I was wrong, turns out I wasn't calculating how much money I am spending in total bets (not doing a sum of all bets), as well as not calculating the payout correctly (forgot to multiply it by two).
+
+This one should be good, I hope:
+
+```{r}
+set.seed(333)
+# set cash_pool to <0 for infinite
+RunStrat_2 <- function(odds_win, start_bet, cash_pool){
+  # see how many attempts before a win
+  win <- FALSE
+  wtracker <- 0
+  while(win == FALSE){
+    wtracker <- wtracker + 1
+    win <- SpinWheel(0.5)
+  }
+  wtracker
+  
+  # determine the amount of money spent on bets
+  bet_money <- sum(start_bet*2^((wtracker-1):0))
+  
+  if(cash_pool > 0 ){
+    if(bet_money > cash_pool){
+      return(
+        # if the attempts exhausts the cash pool, let's just pretend we 
+        # bet the most we could
+        - sum(start_bet*2^(
+          (floor(log(cash_pool / start_bet, 2))-1):0)
+          )
+      )
+    }
+  }
+  
+  # determining the bet payout
+  payout <- start_bet*2^wtracker * 2
+  
+  # find total winnings
+  winnings <- payout - bet_money
+  
+  return(winnings)
+}
+replicate(100, RunStrat_2(0.5, 2, 1000))
+```
+
+
+Hmm, I would be expecting to see winnings of 2 be the most common (e.g. bet was 2, win on the first round, and get 4 in return, so 4 - 2 is 2). Although I think I might be thinking of the mechanism incorrectly ...
+
+Let's check:
+
+`rubber-duck.png`
+
+Reading up on how roulette pays out, it pays out in "even money", in that if you win, you get what you bet (and you can keep your bet). So if I bet \$2 and win, then I get \$2, my winnings are \$2.
+
+In this simulation, I'm keeping track of the cost to continue to play the game. So as one's bet's double to keep playing, there's the cost of all the previous bets lost. So if I lose the first bet, but win the second (when I bet $4), then I get \$4, but subtract the lost \$2 to arrive at a total winnings of \$2 ... my original bet amount. 
+
+Hmm, let's see if there's a pattern here.
+
+I can win the 2^n amount, but I need to subtract the previous sum(2^((n-1):1)):
+
+```{r, eval = FALSE}
+# for some reason this code doesn't work??
+tibble(n = 5:1) %>% 
+  mutate(
+    winnings = 2^n - sum(2^((n-1):0))
+    )
+```
+
+```{r}
+lapply(5:1, function(n){
+  2^n - sum(2^((n-1):0))
+}) %>% unlist()
+```
+
+Ok, from that we are seeing that the winning from each consecutive round is just 1 -- this is because with the math I have, it is not being multiplied by the starting bet, so it's really an assumption of the starting bet being $1.
+
+Hmm, so I guess this means that there are only two outcomes from this simulation, that one gains $2, or one loses the max they can in bets. Suddenly this strategy becomes less interesting because one is locking in winning back their starting bet. Kind of boring, unless one is ready to put up a large bet (and has a large pool of money to keep betting with). 
+
+Let's modify that function: 
+
+```{r}
+set.seed(333)
+# set cash_pool to <0 for infinite
+RunStrat_2 <- function(odds_win, start_bet, cash_pool){
+  # see how many attempts before a win
+  win <- FALSE
+  wtracker <- 0
+  while(win == FALSE){
+    wtracker <- wtracker + 1
+    win <- SpinWheel(0.5)
+  }
+  wtracker
+  
+  # determine the amount of money spent on bets
+  bet_money <- sum(start_bet*2^((wtracker-1):0))
+  
+  if(cash_pool > 0 ){
+    if(bet_money > cash_pool){
+      return(
+        # if the attempts exhausts the cash pool, let's just pretend we 
+        # bet the most we could
+        - sum(start_bet*2^(
+          (floor(log(cash_pool / start_bet, 2))-1):0)
+          )
+      )
+    }
+  }
+  
+  # determining the bet payout
+  payout <- start_bet*2^wtracker
+  
+  # find total winnings
+  winnings <- payout - bet_money
+  
+  return(winnings)
+}
+replicate(100, RunStrat_2(0.5, 2, 1000))
+```
+
+

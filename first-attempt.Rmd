@@ -1,0 +1,107 @@
+---
+title: "Eli's Bets"
+author: "Derek Nedveck"
+date: "7/23/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+
+```
+
+
+## Intro
+
+During a car ride back from the North Shore of Minnesota, my friend Eli told my of his betting strategy:
+
+> "I don't go into casinos often in my life, let's say at most 8 times. So each time that I go in, I'm going to go to the roulette table, place down a bet on a color, and if I win, I leave with my winnings. If I lose, then I double my bet on a single color, and go again. I keep doing this until I win, and then I leave."
+
+My first instinct was "the house always wins", and to not try the game. But then my second instict was "I can simulate this in R to better understand this strategy."
+
+So here is that simulation.
+
+## Simulating the process
+
+I'm going to write a function to simulate the process of Eli going to play one round of his betting strategy. One thing that I left out was that we did discuss one thing that would stop him would be havin a certain maximum amount to bet (and therefore maximum losses), so I'll need to capture that in the function. Eli is going to have a certain starting bet (like \$2), and have e.g. \$5K on hand to play the game with.
+
+Here's a function to simulate that process:
+
+```{r}
+# writing a function for spinning a wheel
+SpinWheel <- function(odds_win){
+  sample(c(TRUE, FALSE), size = 1, prob = c(odds_win, 1 - odds_win))
+}
+
+PlayBettingGame <- function(starting_bet, cash_pool, odds_win){
+  
+  winnings <- 0
+  bet <- starting_bet
+  
+  # going to do the initial round outside the while loop
+  winnings <- winnings - bet
+  cash_pool <- cash_pool - bet
+  
+  if(
+    # this is a shortcut to not need to store a value
+    SpinWheel(odds_win)
+  ){
+    winnings <- winnings + bet*2
+    return(winnings)
+  }
+
+  # while loop to play this game until we win, or our cash pool is gone
+  win <- FALSE
+  while(win == FALSE){
+    # place bets
+    bet <- bet*2
+    cash_pool <- cash_pool - bet
+    if(cash_pool < 0){
+      return(winnings)
+    }
+    winnings <- winnings - bet
+    
+    # spin wheel
+    win <- SpinWheel(odds_win)
+    # handle outcomes
+    if(win == TRUE){
+      winnings <- winnings + bet*2
+    }
+  }
+  return(winnings)
+}
+```
+
+
+```{r}
+tracker <- 0 
+w = F
+while(w == F){
+  tracker = tracker + 1
+  w = rnorm(1) > 0
+}
+tracker
+```
+
+```{r}
+run_track <- function(odds_win){
+  tracker <- 0 
+  w = F
+  while(w == F){
+    tracker = tracker + 1
+    w = runif(1) < odds_win
+  }
+  return(tracker)
+}
+replicate(n = 20, expr = run_track(0.75))
+```
+
+
+
+```{r}
+replicate(n = 20, expr = PlayBettingGame(2, 4000, 0.5))
+```
+

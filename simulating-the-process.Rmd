@@ -1,0 +1,186 @@
+---
+title: "Evaluating Eli's strategy"
+author: "Derek"
+date: "2022-07-26"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+```{r}
+library(tibble)
+library(ggplot2)
+library(dplyr)
+```
+
+
+## Intro
+
+As my friend Eli and I were driving back from the North Shore of Lake Superior, Eli filled me in on a betting strategy that he thought of:
+
+> "I don't go into a casino often in my life, maybe 8 times all together, so each time I go into one, I'm going to go to a roulette table, bet on a single color (let's say black), and if I lose, double my bet and play again. I'm going to do this until I win, and then leave once I win. There's a chance I could win right away, and I would leave then."
+
+My first thought was "the house always wins, this strategy won't work," but then I was thinking that I could simulate this in R to better understand how his strategy would perform. 
+
+This is that simulation.
+
+## Modeling the process
+
+I created the following function to simulate the strategy that Eli came up with:
+
+```{r}
+# first, I need to spin a wheel
+
+SpinWheel <- function(odds_win){
+  runif(1) < odds_win
+}
+
+# function to simulate the double-until-win strategy
+# odds_win = the odds of a win
+# start_bet = the amount that one starts with
+# cash_pool = maximum amount that one will bet with
+
+RunStrategy <- function(odds_win, start_bet, cash_pool){
+  # see how many attempts before a win
+  win <- FALSE
+  wtracker <- 0
+  while(win == FALSE){
+    wtracker <- wtracker + 1
+    win <- SpinWheel(0.5)
+  }
+  wtracker
+  
+  # determine the amount of money spent on bets
+  bet_money <- sum(start_bet*2^((wtracker-1):0))
+  
+  if(cash_pool > 0 ){
+    if(bet_money > cash_pool){
+      return(
+        # if the attempts exhausts the cash pool, let's just pretend we 
+        # bet the most we could
+        - sum(start_bet*2^(
+          (floor(log(cash_pool / start_bet, 2))-1):0)
+          )
+      )
+    }
+  }
+  
+  # determining the bet payout
+  payout <- start_bet*2^wtracker
+  
+  # find total winnings
+  winnings <- payout - bet_money
+  
+  return(winnings)
+}
+```
+
+
+*Note: This is actually a boring strategy in the sense that a single run has only two outcomes -- winning the starting bet, or losing the max they can based on their available money pool.*
+
+## Running simulations 
+
+### A single run
+
+Let's say Eli strolls into the casino with $5K to try out his strategy, what's the probability that Eli will leave with a positive value of winnings? 
+
+First, what's the prob of winning in American Roulette?
+
+Eli's going to bet on one color (red / black), which has the probability of winning being 18/ 38 (36 alternating red/black numbers, plus a 0 and 00 square). Since we're doing simulations, let's be exact and use the fraction.
+
+I'm going to use the `replicate()` function to run my function call many times, and then I can start asking questions of those outcomes. 
+
+```{r}
+set.seed(333)
+sr_reps <- 90003
+single_run <- replicate(sr_reps, RunStrategy(odds_win = 18/38, start_bet = 2, cash_pool = 5000))
+```
+
+Alright, so what is the Pr[winnings > 0]?
+
+```{r}
+sum(single_run > 0) / sr_reps
+```
+
+And what's the Pr[winnings < 0]? 
+
+```{r}
+sum(single_run < 0) / sr_reps
+```
+
+
+### Eli's life plan
+
+Alright, as previously described, Eli is thinking that he will only be going into a casino 8 times in his life. So now the thing to replicate is running his strategy 8 times, and then seeing how the breakdown is for what he could win during those simulated lifetimes. 
+
+```{r}
+lf_reps <- 90003
+life_run <- replicate(lf_reps, {
+  sum(
+    replicate(n = 8, 
+              RunStrategy(odds_win = 18/38, start_bet = 2, cash_pool = 5000)
+                )
+  )
+  
+})
+```
+
+Alright, what are the outcomes that Eli had?
+
+```{r}
+lf_table <- table(life_run)
+lf_table
+```
+
+Wow, in Eli's life, he has the chance to win $16 ... and the crowd goes mild. 
+
+Let's view this in probabilities
+
+```{r}
+lf_tbl <- tibble(
+  winnings = names(lf_table),
+  probability = as.vector(lf_table) / lf_reps
+)
+lf_tbl
+```
+
+
+So, I guess not too bad, 99.6% of winning $16 over 8 runs. I guess this means that you can beat the house.
+
+
+
+### Cranking the bets up
+
+I think one thing to explore is how the probability of winning shifts as your bets go up, and keeping a realistic cash pool.
+
+Let's go back to simulating a single session at the roulette table, keep the cash pool at $5k, but then vary the bets, and see how the prob of winning changes.
+
+```{r}
+br_reps <- 90003
+bets <- c(10, 20, 50, 100, 250, 500, 1000, 2000)
+bet_ls <- lapply(bets, function(bet){
+  replicate(br_reps, RunStrategy(odds_win = 18/38, start_bet = bet, cash_pool = 5000))
+})
+```
+
+Now lets find the probability of winning for each 
+
+```{r}
+bet_probs <- bet_ls %>% lapply(function(run){
+  sum(run > 0) / br_reps
+  }) %>% 
+  unlist
+
+bet_tbl <- tibble(
+  starting_bet = bets,
+  prob_positive_winning = bet_probs
+)
+bet_tbl
+```
+
+So now it comes down to how much risk you are willing to tolerate to get a 100% gain on your bet. Maybe \$250 or \$500? Or maybe do something else with the $5K that one would need to play with. 
+
+
+
